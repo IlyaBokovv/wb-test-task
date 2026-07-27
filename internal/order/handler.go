@@ -4,18 +4,22 @@ import (
 	"encoding/json"
 	"math/rand"
 	"net/http"
-	"wb_test_task/pkg/kafka/producer"
 	"wb_test_task/pkg/response"
 )
 
+type Producer interface {
+	ProduceMessage(message []byte) error
+	SampleOrder() []byte
+}
+
 type HandlerDeps struct {
-	OrderRepository *OrderRepository
-	Producer        *producer.Producer
+	OrderRepository Repository
+	Producer        Producer
 }
 
 type Handler struct {
-	OrderRepository *OrderRepository
-	Producer        *producer.Producer
+	OrderRepository Repository
+	Producer        Producer
 }
 
 func NewHandler(router *http.ServeMux, deps HandlerDeps) {
@@ -42,7 +46,7 @@ func (handler *Handler) GetOrder() func(http.ResponseWriter, *http.Request) {
 func (handler *Handler) AddRandomOrder() func(http.ResponseWriter, *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var order Order
-		err := json.Unmarshal(handler.Producer.SampleOrderBytes, &order)
+		err := json.Unmarshal(handler.Producer.SampleOrder(), &order)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return

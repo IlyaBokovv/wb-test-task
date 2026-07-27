@@ -13,6 +13,13 @@ const (
 	CacheInitialValue = 10
 )
 
+type Repository interface {
+	Save(order Order) error
+	GetByUid(uid string) (*Order, error)
+	GetByUidCached(uid string) (*Order, error)
+	PutCache(order *Order)
+}
+
 type OrderRepository struct {
 	Database *db.Db
 	Cache    *Cache
@@ -85,7 +92,11 @@ func (repo *OrderRepository) GetByUidCached(uid string) (*Order, error) {
 	return order, nil
 }
 
-func (repo *OrderRepository) GetTopNRows(limit int) ([]Order, error) {
+func (repo *OrderRepository) PutCache(order *Order) {
+	repo.Cache.Put(order)
+}
+
+func (repo *OrderRepository) GetLastNRows(limit int) ([]Order, error) {
 	var orders []Order
 	err := repo.Database.DB.
 		Preload("Delivery").
@@ -98,7 +109,7 @@ func (repo *OrderRepository) GetTopNRows(limit int) ([]Order, error) {
 }
 
 func (repo *OrderRepository) FillCache() error {
-	orders, err := repo.GetTopNRows(CacheInitialValue)
+	orders, err := repo.GetLastNRows(CacheInitialValue)
 	if err != nil {
 		return err
 	}

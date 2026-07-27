@@ -3,25 +3,32 @@ package consumer
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log"
 	"strings"
-	"time"
 	"wb_test_task/configs"
 	"wb_test_task/internal/order"
 
 	"github.com/go-playground/validator/v10"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/segmentio/kafka-go"
 )
+
+type OrderStore interface {
+	Save(o order.Order) error
+	PutCache(o *order.Order)
+}
 
 type Consumer struct {
 	brokers         []string
 	topic           string
 	groupID         string
-	orderRepository *order.OrderRepository
+	orderRepository OrderStore
 	validate        *validator.Validate
 }
 
-func NewConsumer(config *configs.Config, orderRepository *order.OrderRepository) *Consumer {
+func NewConsumer(config *configs.Config, orderRepository OrderStore) *Consumer {
 	return &Consumer{
 		brokers:         config.Kafka.Brokers,
 		topic:           config.Kafka.Topic,
@@ -49,68 +56,65 @@ func (c *Consumer) StartConsuming(ctx context.Context) {
 				return
 			}
 			log.Println("kafka receive failed", "error", err)
-			if !retry(ctx) {
-				return
-			}
-			continue
-		}
-		var order order.Order
-		decodeErr := json.Unmarshal(message.Value, &order)
-		if decodeErr != nil {
-			log.Println("invalid kafka message format, message ignored", "error", decodeErr, "partition", message.Partition, "offset", message.Offset)
-			if err := reader.CommitMessages(ctx, message); err != nil {
-				log.Println("failed to commit invalid message", "error", err)
-			}
 			continue
 		}
 
-		if validationErr := c.validate.Struct(order); validationErr != nil {
-			var validationErrors []string
-			if errs, ok := validationErr.(validator.ValidationErrors); ok {
-				for _, err := range errs {
-					validationErrors = append(validationErrors,
-						"field "+err.Field()+" failed on tag '"+err.Tag()+"' with value '"+err.Param()+"'")
-				}
-			} else {
-				validationErrors = append(validationErrors, validationErr.Error())
-			}
+		commit, procErr := c.processMessage(message.Value)
+		if procErr != nil {
+			log.Println("order processing failed", "error", procErr, "partition", message.Partition, "offset", message.Offset)
+		}
+		if !commit {
 
-			if err := reader.CommitMessages(ctx, message); err != nil {
-				log.Println("Kafka offset commit failed", "error", err)
-				continue
-			}
-			log.Println("order validation failed, message ignored",
-				"errors", strings.Join(validationErrors, "; "),
-				"partition", message.Partition,
-				"offset", message.Offset,
-				"order_uid", order.OrderUID)
 			continue
 		}
-		if err := c.orderRepository.Save(order); err != nil {
-			if strings.Contains(err.Error(), "duplicate key value violates unique constraint") {
-				log.Println("order with the same id already exists in db", "order_uid", order.OrderUID)
-			} else {
-				log.Println("database write failed, message remains uncommitted", "order_uid", order.OrderUID, "error", err)
-				if !retry(ctx) {
-					return
-				}
-				continue
-			}
-		}
-		c.orderRepository.Cache.Put(&order)
 		if err := reader.CommitMessages(ctx, message); err != nil {
-			log.Println("Kafka offset commit failed", "error", err)
+			log.Println("kafka offset commit failed", "error", err)
 			continue
 		}
-		log.Println("order processed", "order_uid", order.OrderUID)
+		if procErr == nil {
+			log.Println("order processed")
+		}
 	}
 }
 
-func retry(ctx context.Context) bool {
-	select {
-	case <-ctx.Done():
-		return false
-	case <-time.After(time.Second):
-		return true
+func (c *Consumer) processMessage(payload []byte) (commit bool, procErr error) {
+	var ord order.Order
+	if err := json.Unmarshal(payload, &ord); err != nil {
+		return true, fmt.Errorf("invalid message format: %w", err)
 	}
+
+	if err := c.validate.Struct(ord); err != nil {
+		return true, fmt.Errorf("validation failed for order %s: %w", ord.OrderUID, describeValidationErr(err))
+	}
+
+	if err := c.orderRepository.Save(ord); err != nil {
+		if isDuplicateKeyError(err) {
+			c.orderRepository.PutCache(&ord)
+			return true, nil
+		}
+		return false, fmt.Errorf("db write failed for order %s: %w", ord.OrderUID, err)
+	}
+
+	c.orderRepository.PutCache(&ord)
+	return true, nil
+}
+
+func describeValidationErr(err error) error {
+	var validationErrors validator.ValidationErrors
+	if !errors.As(err, &validationErrors) {
+		return err
+	}
+	parts := make([]string, 0, len(validationErrors))
+	for _, e := range validationErrors {
+		parts = append(parts, "field "+e.Field()+" failed on tag '"+e.Tag()+"' with value '"+e.Param()+"'")
+	}
+	return errors.New(strings.Join(parts, ";"))
+}
+
+func isDuplicateKeyError(err error) bool {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		return pgErr.Code == "23505" // unique_violation
+	}
+	return strings.Contains(err.Error(), "duplicate key value violates unique constraint")
 }

@@ -29,10 +29,10 @@ func main() {
 	go kafkaConsumer.StartConsuming(context.Background())
 
 	server := &http.Server{
-		Addr:    ":8085",
+		Addr:    ":" + conf.Http.Port,
 		Handler: router,
 	}
 
-	log.Println("Server is listening on port 8085")
+	log.Println("Server is listening on port " + conf.Http.Port)
 	server.ListenAndServe()
 }

@@ -91,6 +91,7 @@ func (repo *OrderRepository) GetTopNRows(limit int) ([]Order, error) {
 		Preload("Delivery").
 		Preload("Payment").
 		Preload("Items").
+		Order("date_created DESC").
 		Limit(limit).
 		Find(&orders).Error
 	return orders, err

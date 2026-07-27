@@ -24,10 +24,13 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	db.AutoMigrate(
+	err = db.AutoMigrate(
 		&order.Order{},
 		&delivery.Delivery{},
 		&payment.Payment{},
 		&item.Item{},
 	)
+	if err != nil {
+		panic("Migration failed: " + err.Error())
+	}
 }

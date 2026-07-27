@@ -10,8 +10,6 @@ import (
 	"github.com/segmentio/kafka-go"
 )
 
-const CharacterSet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
-
 type Producer struct {
 	SampleOrderBytes []byte
 	Writer           *kafka.Writer

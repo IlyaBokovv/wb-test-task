@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>Заказы</title>
+    <style>body {
+        max-width: 900px;
+        margin: 40px auto;
+        font: 16px system-ui;
+        color: #18212f;
+        background: #f6f8fb;
+        padding: 0 16px
+    }
+
+    input, button {
+        padding: 10px;
+        font-size: 16px
+    }
+
+    input {
+        width: min(390px, 70%)
+    }
+
+    button {
+        background: #2563eb;
+        border: 0;
+        color: #fff;
+        border-radius: 5px;
+        cursor: pointer
+    }
+
+    .button-group {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin-top: 10px;
+    }
+
+    .button-group button {
+        flex: 0 1 auto;
+    }
+
+    .button-group button.post-btn {
+        background: #16a34a;
+    }
+
+    .button-group button.post-btn:hover {
+        background: #15803d;
+    }
+
+    button:hover {
+        background: #1d4ed8;
+    }
+
+    pre {
+        white-space: pre-wrap;
+        background: #fff;
+        padding: 18px;
+        border-radius: 8px;
+        box-shadow: 0 1px 4px #0001
+    }
+
+    #status {
+        color: #52606d
+    }
+
+    .status-success {
+        color: #16a34a !important;
+    }
+
+    .status-error {
+        color: #dc2626 !important;
+    }</style>
+</head>
+<body><h1>Поиск заказа</h1>
+<p>Введите <code>order_uid</code>, полученный из Kafka.</p>
+<input id="id" placeholder="b563feb7b2b84b6test" autofocus>
+<div class="button-group">
+    <button onclick="findOrder()">Найти (GET)</button>
+    <button class="post-btn" onclick="createOrder()">Создать заказ (POST)</button>
+</div>
+<p id="status"></p>
+<pre id="result">Данные заказа появятся здесь.</pre>
+<script>
+    const status = document.querySelector('#status');
+    const result = document.querySelector('#result');
+
+    function setStatus(text, type) {
+        status.textContent = text;
+        status.className = type || '';
+    }
+
+    async function findOrder() {
+        const id = document.querySelector('#id').value.trim();
+        if (!id) {
+            setStatus('Введите order_uid', 'status-error');
+            return;
+        }
+        setStatus('Загрузка…');
+        result.textContent = '';
+        try {
+            const r = await fetch('/order/' + encodeURIComponent(id));
+            if (r.status === 404) throw new Error('Элемент с таким uid не найден');
+            const body = await r.json();
+            if (!r.ok) throw new Error(body.error || 'Ошибка');
+            result.textContent = JSON.stringify(body, null, 2);
+            setStatus('Успешно найдено', 'status-success');
+        } catch (e) {
+            setStatus('Ошибка', 'status-error');
+            result.textContent = e.message;
+        }
+    }
+
+    async function createOrder() {
+        setStatus('Отправка POST запроса…');
+        result.textContent = '';
+        try {
+            const r = await fetch('/order/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            });
+            const body = await r.json();
+            if (!r.ok) throw new Error(body.error || 'Ошибка при создании заказа');
+            result.textContent = JSON.stringify(body, null, 2);
+            setStatus('Заказ успешно создан', 'status-success');
+        } catch (e) {
+            setStatus('Ошибка', 'status-error');
+            result.textContent = e.message;
+        }
+    }
+</script>
+</body>
+</html>

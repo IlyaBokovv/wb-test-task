@@ -11,7 +11,7 @@ import (
 )
 
 type Producer struct {
-	SampleOrderBytes []byte
+	sampleOrderBytes []byte
 	Writer           *kafka.Writer
 }
 
@@ -19,7 +19,7 @@ func NewProducer(config *configs.Config) *Producer {
 	file := flag.String("file", "sample-order.json", "JSON file to publish")
 	body, _ := os.ReadFile(*file)
 	return &Producer{
-		SampleOrderBytes: body,
+		sampleOrderBytes: body,
 		Writer: &kafka.Writer{
 			Addr:         kafka.TCP(config.Kafka.Brokers...),
 			Topic:        config.Kafka.Topic,
@@ -33,6 +33,10 @@ func NewProducer(config *configs.Config) *Producer {
 func (p *Producer) ProduceMessage(message []byte) error {
 	return p.Writer.WriteMessages(context.Background(),
 		kafka.Message{Value: message})
+}
+
+func (p *Producer) SampleOrder() []byte {
+	return p.sampleOrderBytes
 }
 
 func (p *Producer) Close() error {
